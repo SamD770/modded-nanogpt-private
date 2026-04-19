@@ -28,9 +28,10 @@ For example:
 
 - Take the sequence "token strided convolutions are cool". (To help with parsing: the byte sequence here is `t o k e n _ s t r i d e d _ c o n v o l u t i o n s _ a r e _ c o o l`)
 - This gets tokenized into "token" " str" "ided" " conv" "olutions" " are" " cool".
-- This would then be put into the following markdown table:
+- This would then be put into the following shape in the `byte_seq` tensor:
 
-
+|   |   |   |   |   |   |   |
+|---|---|---|---|---|---|---|
 |   |   |   |   | o |   |   |
 |   |   |   |   | l |   |   |
 |   |   |   |   | u |   |   |
@@ -40,5 +41,6 @@ For example:
 | e | t | e | n | n | r | o |
 | n | r | d | v | s | e | l |
 
+Whether we pad left or right is also something to ablate
 
-Whether we pad left or right is 
+- This would then have: An individual byte-level embedding layer applied to achieve a tensor which has a logical shape of `(input_length, byte_window_size, byte_embedding_dim)`, followed by a convolution/linear layer which will project this down to `(input_length, embedding_dim)`, the `self.byte_convolution` output. the output of  feel free to change the true tensor sizes to make it fast. 
