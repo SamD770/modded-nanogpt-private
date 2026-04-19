@@ -3,7 +3,7 @@
 
 This is the modded-nanogpt repo, used for nanogpt speedrunning.
 
-I would like to implement and Idea I call _token-strided convolutions_: the basic idea is that current tokenization with an embedding layer discards all of the potentially valuable information at the utf-8 byte level: for example, "The " and "the " are at initialization assigned completely independent embeddings to each other, further valuable information such as "does this token end in whitespace" and "does this token end in -ing" are discarded.
+I would like to implement and idea I call _token-strided convolutions_: the basic idea is that current tokenization with an embedding layer discards all of the potentially valuable information at the utf-8 byte level: for example, "The " and "the " are at initialization assigned completely independent embeddings to each other, further valuable information such as "does this token end in whitespace" and "does this token end in -ing" are discarded.
 
 In the current implementation, the embedding is the sum of the current token embedding and the bigram embedding:
 
@@ -44,3 +44,7 @@ For example:
 Whether we pad left or right is also something to ablate
 
 - This would then have: An individual byte-level embedding layer applied to achieve a tensor which has a logical shape of `(input_length, byte_window_size, byte_embedding_dim)`, followed by a convolution/linear layer which will project this down to `(input_length, embedding_dim)`, the `self.byte_convolution` output. the output of  feel free to change the true tensor sizes to make it fast. 
+
+Implementation notes:
+- The rules state that "New records must not modify the train or validation pipelines". I think this means that we will need to cache the token -> bytes mapping in a lookup table and store it elsewhere (unless this is already in ).
+- The goal of this is to be _fast_ : you should flag if you think that there will be a cpu-bound process here. 
