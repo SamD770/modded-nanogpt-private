@@ -88,6 +88,31 @@ Since the fix is in `/root/.cache/huggingface`, the training container must moun
 2. Fix `varunneal/flash-attention-3` to use `from .flash_attn_config import CONFIG`.
 3. Add a small section to the README noting `--ipc=host` and HF cache mount for Docker.
 
+## Issue 3: OOM with cu128 torch nightly (unresolved)
+
+After both fixes above, training starts and runs cleanly up to **step 90/1480** (~2.8 s of training at 31 ms/step), then OOMs in the forward pass on all 8 GPUs:
+
+```
+torch.OutOfMemoryError: CUDA out of memory. Tried to allocate 786.00 MiB.
+GPU 0 has a total capacity of 79.20 GiB of which 738.62 MiB is free.
+this process has 78.47 GiB memory in use.
+```
+
+`PYTORCH_CUDA_ALLOC_CONF=expandable_segments:True` did not help.
+
+**Likely root cause.** The `cu128` nightly channel is currently lagging: `cu126` gives `torch-2.13.0.dev20260419+cu126` (today), while `cu128` gives `torch-2.12.0.dev20260408+cu128` (11 days older). The head training code is tuned against the cu126 nightly's allocator behaviour, and the older cu128 nightly evidently allocates slightly more (or fragments more) in the `max_seq_len` / `batch_size` schedule ramp.
+
+Step 90 is right around a scheduled config change (`max_seq_len` / batch schedule), which is consistent with memory usage jumping over the ~800 MiB budget the code has.
+
+**Paths forward (not tried yet):**
+1. Wait for `cu128` nightly to catch up to `torch-2.13.0.dev` (should happen within days).
+2. Override NVRTC-12.8 into a `cu126` nightly install (hacky; NVRTC version can be swapped at runtime since it's a separate `nvidia-cuda-nvrtc-cu12` wheel).
+3. Pin a specific older `cu126` torch nightly from before PR #251 merged — but then the `__tanhf` code won't run.
+4. Reduce batch size in `train_gpt.py` (the speedrun rules permit this, at a cost to timing validity).
+
+At this point, the core setup works for ~90 training steps — enough to confirm the Docker path is functional end-to-end; it just can't complete a full run on this torch build.
+
 ## Image published
 
 - `samd01/modded-nanogpt:cu128` — the rebuilt image (torch cu128 nightly). Does **not** bundle the HF kernel patch; follow the `sed` command above after first run.
+- Pull: `docker pull samd01/modded-nanogpt:cu128`
