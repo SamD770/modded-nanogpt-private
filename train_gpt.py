@@ -2027,6 +2027,11 @@ for step in range(train_steps + 1):
         del val_loader
         dist.reduce(val_loss, 0, op=dist.ReduceOp.AVG)
         print0(f"step:{step}/{train_steps} val_loss:{val_loss:.4f} train_time:{training_time_ms:.0f}ms step_avg:{training_time_ms/max(step, 1):.2f}ms", console=True)
+        with torch.no_grad():
+            _m = getattr(model, "_orig_mod", model)
+            _bl = _m.byte_lambda.detach().float().cpu().tolist()
+            _bg = _m.bigram_lambdas.detach().float().cpu().tolist()
+        print0(f"lambdas step:{step} byte_lambda:{_bl} bigram_lambdas:{_bg}", console=False)
         model.train()
         # start the clock again
         torch.cuda.synchronize()
