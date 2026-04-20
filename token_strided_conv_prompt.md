@@ -43,7 +43,7 @@ For example:
 
 Whether we pad left or right is also something to ablate
 
-- This would then have: An individual byte-level embedding layer applied to achieve a tensor which has a logical shape of `(input_length, byte_window_size, byte_embedding_dim)`, followed by a convolution/linear layer which will project this down to `(input_length, embedding_dim)`, the `self.byte_convolution` output. the output of  feel free to change the true tensor sizes to make it fast. 
+- This would then have: An individual byte-level embedding layer applied to achieve a tensor which has a logical shape of `(input_length, byte_window_size, byte_embedding_dim)`, followed by a convolution/linear layer which will project this down to `(input_length, model_dim)`, the `self.byte_convolution` output. the output of  feel free to change the true tensor sizes to make it fast. 
 
 Implementation notes:
 - The rules state that "New records must not modify the train or validation pipelines". I think this means that we will need to cache the token -> bytes mapping in a lookup table and store it elsewhere (unless this is already in ).
