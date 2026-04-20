@@ -1,0 +1,172 @@
+W0420 03:25:03.350000 39592 torch/distributed/run.py:852] 
+W0420 03:25:03.350000 39592 torch/distributed/run.py:852] *****************************************
+W0420 03:25:03.350000 39592 torch/distributed/run.py:852] Setting OMP_NUM_THREADS environment variable for each process to be 1 in default, to avoid your system being overloaded, please further tune the variable for optimal performance in your application as needed. 
+W0420 03:25:03.350000 39592 torch/distributed/run.py:852] *****************************************
+Traceback (most recent call last):
+  File "/root/modded-nanogpt-private/train_gpt.py", line 38, in <module>
+    from triton_kernels import XXT, XTX, ba_plus_cAA, FusedLinearReLUSquareFunction, FusedSoftcappedCrossEntropy, transpose_add, transpose_copy
+  File "/root/modded-nanogpt-private/triton_kernels.py", line 897, in <module>
+    ce_fwd_bwd_kernel = torch.cuda._compile_kernel(
+  File "/usr/local/lib/python3.10/dist-packages/torch/cuda/__init__.py", line 1806, in _compile_kernel
+    ptx, mangled_name = _nvrtc_compile(
+  File "/usr/local/lib/python3.10/dist-packages/torch/cuda/_utils.py", line 190, in _nvrtc_compile
+    cuda_include_paths = include_paths("cuda")
+  File "/usr/local/lib/python3.10/dist-packages/torch/utils/cpp_extension.py", line 1582, in include_paths
+    cuda_home_include = _join_cuda_home('include')
+  File "/usr/local/lib/python3.10/dist-packages/torch/utils/cpp_extension.py", line 3102, in _join_cuda_home
+    raise OSError('CUDA_HOME environment variable is not set. '
+OSError: CUDA_HOME environment variable is not set. Please set it to your CUDA install root.
+Traceback (most recent call last):
+  File "/root/modded-nanogpt-private/train_gpt.py", line 38, in <module>
+    from triton_kernels import XXT, XTX, ba_plus_cAA, FusedLinearReLUSquareFunction, FusedSoftcappedCrossEntropy, transpose_add, transpose_copy
+  File "/root/modded-nanogpt-private/triton_kernels.py", line 897, in <module>
+    ce_fwd_bwd_kernel = torch.cuda._compile_kernel(
+  File "/usr/local/lib/python3.10/dist-packages/torch/cuda/__init__.py", line 1806, in _compile_kernel
+    ptx, mangled_name = _nvrtc_compile(
+  File "/usr/local/lib/python3.10/dist-packages/torch/cuda/_utils.py", line 190, in _nvrtc_compile
+    cuda_include_paths = include_paths("cuda")
+  File "/usr/local/lib/python3.10/dist-packages/torch/utils/cpp_extension.py", line 1582, in include_paths
+    cuda_home_include = _join_cuda_home('include')
+  File "/usr/local/lib/python3.10/dist-packages/torch/utils/cpp_extension.py", line 3102, in _join_cuda_home
+    raise OSError('CUDA_HOME environment variable is not set. '
+OSError: CUDA_HOME environment variable is not set. Please set it to your CUDA install root.
+Traceback (most recent call last):
+  File "/root/modded-nanogpt-private/train_gpt.py", line 38, in <module>
+    from triton_kernels import XXT, XTX, ba_plus_cAA, FusedLinearReLUSquareFunction, FusedSoftcappedCrossEntropy, transpose_add, transpose_copy
+  File "/root/modded-nanogpt-private/triton_kernels.py", line 897, in <module>
+    ce_fwd_bwd_kernel = torch.cuda._compile_kernel(
+  File "/usr/local/lib/python3.10/dist-packages/torch/cuda/__init__.py", line 1806, in _compile_kernel
+    ptx, mangled_name = _nvrtc_compile(
+  File "/usr/local/lib/python3.10/dist-packages/torch/cuda/_utils.py", line 190, in _nvrtc_compile
+    cuda_include_paths = include_paths("cuda")
+  File "/usr/local/lib/python3.10/dist-packages/torch/utils/cpp_extension.py", line 1582, in include_paths
+    cuda_home_include = _join_cuda_home('include')
+  File "/usr/local/lib/python3.10/dist-packages/torch/utils/cpp_extension.py", line 3102, in _join_cuda_home
+    raise OSError('CUDA_HOME environment variable is not set. '
+OSError: CUDA_HOME environment variable is not set. Please set it to your CUDA install root.
+Traceback (most recent call last):
+  File "/root/modded-nanogpt-private/train_gpt.py", line 38, in <module>
+    from triton_kernels import XXT, XTX, ba_plus_cAA, FusedLinearReLUSquareFunction, FusedSoftcappedCrossEntropy, transpose_add, transpose_copy
+  File "/root/modded-nanogpt-private/triton_kernels.py", line 897, in <module>
+    ce_fwd_bwd_kernel = torch.cuda._compile_kernel(
+  File "/usr/local/lib/python3.10/dist-packages/torch/cuda/__init__.py", line 1806, in _compile_kernel
+    ptx, mangled_name = _nvrtc_compile(
+  File "/usr/local/lib/python3.10/dist-packages/torch/cuda/_utils.py", line 190, in _nvrtc_compile
+    cuda_include_paths = include_paths("cuda")
+  File "/usr/local/lib/python3.10/dist-packages/torch/utils/cpp_extension.py", line 1582, in include_paths
+    cuda_home_include = _join_cuda_home('include')
+  File "/usr/local/lib/python3.10/dist-packages/torch/utils/cpp_extension.py", line 3102, in _join_cuda_home
+    raise OSError('CUDA_HOME environment variable is not set. '
+OSError: CUDA_HOME environment variable is not set. Please set it to your CUDA install root.
+Traceback (most recent call last):
+  File "/root/modded-nanogpt-private/train_gpt.py", line 38, in <module>
+    from triton_kernels import XXT, XTX, ba_plus_cAA, FusedLinearReLUSquareFunction, FusedSoftcappedCrossEntropy, transpose_add, transpose_copy
+  File "/root/modded-nanogpt-private/triton_kernels.py", line 897, in <module>
+    ce_fwd_bwd_kernel = torch.cuda._compile_kernel(
+  File "/usr/local/lib/python3.10/dist-packages/torch/cuda/__init__.py", line 1806, in _compile_kernel
+    ptx, mangled_name = _nvrtc_compile(
+  File "/usr/local/lib/python3.10/dist-packages/torch/cuda/_utils.py", line 190, in _nvrtc_compile
+    cuda_include_paths = include_paths("cuda")
+  File "/usr/local/lib/python3.10/dist-packages/torch/utils/cpp_extension.py", line 1582, in include_paths
+    cuda_home_include = _join_cuda_home('include')
+  File "/usr/local/lib/python3.10/dist-packages/torch/utils/cpp_extension.py", line 3102, in _join_cuda_home
+    raise OSError('CUDA_HOME environment variable is not set. '
+OSError: CUDA_HOME environment variable is not set. Please set it to your CUDA install root.
+Traceback (most recent call last):
+  File "/root/modded-nanogpt-private/train_gpt.py", line 38, in <module>
+    from triton_kernels import XXT, XTX, ba_plus_cAA, FusedLinearReLUSquareFunction, FusedSoftcappedCrossEntropy, transpose_add, transpose_copy
+  File "/root/modded-nanogpt-private/triton_kernels.py", line 897, in <module>
+    ce_fwd_bwd_kernel = torch.cuda._compile_kernel(
+  File "/usr/local/lib/python3.10/dist-packages/torch/cuda/__init__.py", line 1806, in _compile_kernel
+    ptx, mangled_name = _nvrtc_compile(
+  File "/usr/local/lib/python3.10/dist-packages/torch/cuda/_utils.py", line 190, in _nvrtc_compile
+    cuda_include_paths = include_paths("cuda")
+  File "/usr/local/lib/python3.10/dist-packages/torch/utils/cpp_extension.py", line 1582, in include_paths
+    cuda_home_include = _join_cuda_home('include')
+  File "/usr/local/lib/python3.10/dist-packages/torch/utils/cpp_extension.py", line 3102, in _join_cuda_home
+    raise OSError('CUDA_HOME environment variable is not set. '
+OSError: CUDA_HOME environment variable is not set. Please set it to your CUDA install root.
+W0420 03:25:29.435000 39592 torch/distributed/elastic/multiprocessing/api.py:1010] Sending process 39859 closing signal SIGTERM
+W0420 03:25:29.436000 39592 torch/distributed/elastic/multiprocessing/api.py:1010] Sending process 39860 closing signal SIGTERM
+W0420 03:25:29.437000 39592 torch/distributed/elastic/multiprocessing/api.py:1010] Sending process 39861 closing signal SIGTERM
+W0420 03:25:29.437000 39592 torch/distributed/elastic/multiprocessing/api.py:1010] Sending process 39863 closing signal SIGTERM
+W0420 03:25:29.438000 39592 torch/distributed/elastic/multiprocessing/api.py:1010] Sending process 39864 closing signal SIGTERM
+W0420 03:25:29.438000 39592 torch/distributed/elastic/multiprocessing/api.py:1010] Sending process 39866 closing signal SIGTERM
+E0420 03:25:29.975000 39592 torch/distributed/elastic/multiprocessing/api.py:984] failed (exitcode: 1) local_rank: 3 (pid: 39862) of binary: /usr/bin/python3
+Traceback (most recent call last):
+  File "/usr/local/bin/torchrun", line 8, in <module>
+    sys.exit(main())
+  File "/usr/local/lib/python3.10/dist-packages/torch/distributed/elastic/multiprocessing/errors/__init__.py", line 362, in wrapper
+    return f(*args, **kwargs)
+  File "/usr/local/lib/python3.10/dist-packages/torch/distributed/run.py", line 991, in main
+    run(args)
+  File "/usr/local/lib/python3.10/dist-packages/torch/distributed/run.py", line 982, in run
+    elastic_launch(
+  File "/usr/local/lib/python3.10/dist-packages/torch/distributed/launcher/api.py", line 170, in __call__
+    return launch_agent(self._config, self._entrypoint, list(args))
+  File "/usr/local/lib/python3.10/dist-packages/torch/distributed/launcher/api.py", line 317, in launch_agent
+    raise ChildFailedError(
+torch.distributed.elastic.multiprocessing.errors.ChildFailedError: 
+============================================================
+train_gpt.py FAILED
+------------------------------------------------------------
+Failures:
+[1]:
+  time      : 2026-04-20_03:25:29
+  host      : localhost
+  rank      : 6 (local_rank: 6)
+  exitcode  : 1 (pid: 39865)
+  error_file: <N/A>
+  traceback : To enable traceback see: https://pytorch.org/docs/stable/elastic/errors.html
+[2]:
+  time      : 2026-04-20_03:25:29
+  host      : localhost
+  rank      : 0 (local_rank: 0)
+  exitcode  : -15 (pid: 39859)
+  error_file: <N/A>
+  traceback : Signal 15 (SIGTERM) received by PID 39859
+[3]:
+  time      : 2026-04-20_03:25:29
+  host      : localhost
+  rank      : 1 (local_rank: 1)
+  exitcode  : -15 (pid: 39860)
+  error_file: <N/A>
+  traceback : Signal 15 (SIGTERM) received by PID 39860
+[4]:
+  time      : 2026-04-20_03:25:29
+  host      : localhost
+  rank      : 2 (local_rank: 2)
+  exitcode  : -15 (pid: 39861)
+  error_file: <N/A>
+  traceback : Signal 15 (SIGTERM) received by PID 39861
+[5]:
+  time      : 2026-04-20_03:25:29
+  host      : localhost
+  rank      : 4 (local_rank: 4)
+  exitcode  : -15 (pid: 39863)
+  error_file: <N/A>
+  traceback : Signal 15 (SIGTERM) received by PID 39863
+[6]:
+  time      : 2026-04-20_03:25:29
+  host      : localhost
+  rank      : 5 (local_rank: 5)
+  exitcode  : -15 (pid: 39864)
+  error_file: <N/A>
+  traceback : Signal 15 (SIGTERM) received by PID 39864
+[7]:
+  time      : 2026-04-20_03:25:29
+  host      : localhost
+  rank      : 7 (local_rank: 7)
+  exitcode  : -15 (pid: 39866)
+  error_file: <N/A>
+  traceback : Signal 15 (SIGTERM) received by PID 39866
+------------------------------------------------------------
+Root Cause (first observed failure):
+[0]:
+  time      : 2026-04-20_03:25:29
+  host      : localhost
+  rank      : 3 (local_rank: 3)
+  exitcode  : 1 (pid: 39862)
+  error_file: <N/A>
+  traceback : To enable traceback see: https://pytorch.org/docs/stable/elastic/errors.html
+============================================================
