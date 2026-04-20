@@ -1,0 +1,14 @@
+{
+  "hooks": {
+    "Stop": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "python3 -c 'import json,os,shutil,sys\nd=json.load(sys.stdin)\nsid=d.get(\"session_id\")\nif not sid: sys.exit(0)\nsrc=os.path.expanduser(f\"~/.claude/projects/-root-modded-nanogpt-private/{sid}.jsonl\")\ndst=\"/root/modded-nanogpt-private/.claude/history\"\nos.makedirs(dst, exist_ok=True)\nshutil.copyfile(src, os.path.join(dst, f\"{sid}.jsonl\"))' 2>/dev/null || true"
+          }
+        ]
+      }
+    ]
+  }
+}
