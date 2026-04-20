@@ -1233,6 +1233,19 @@ class GPT(nn.Module):
         self.bigram_embed = nn.Embedding(args.bigram_vocab_size, model_dim)
         nn.init.zeros_(self.bigram_embed.weight)
 
+        # Token-strided byte convolution: per-token UTF-8 bytes -> embed -> project to model_dim.
+        self.byte_window_size = args.byte_window_size
+        self.byte_embed = nn.Embedding(256, args.byte_embedding_dim)
+        nn.init.normal_(self.byte_embed.weight, mean=0.0, std=0.02)
+        self.byte_proj = nn.Linear(args.byte_window_size * args.byte_embedding_dim, model_dim, bias=False)
+        nn.init.zeros_(self.byte_proj.weight)  # start training identical to baseline
+        self.register_buffer(
+            "byte_table",
+            _build_token_byte_table(self.vocab_size, args.byte_window_size, args.byte_pad_side).to(torch.int64),
+            persistent=False,
+        )
+        self.byte_lambda = nn.Parameter(0.05 * torch.ones(1))
+
         self.post_lambdas = nn.Parameter(torch.ones(num_layers, 2))
 
         # Per-layer injection coefficients for x0 and bigram
@@ -1299,6 +1312,10 @@ class GPT(nn.Module):
         
         x0_bigram = self.bigram_embed(bigram_input_seq)[None]
 
+        # Token-strided byte convolution injection
+        byte_seq = self.byte_table[input_seq]                     # (T, W) int64
+        x_byte = self.byte_proj(self.byte_embed(byte_seq).flatten(1))[None]  # (1, T, model_dim)
+
         # Value embeddings - always computed (not precomputed)
         ve = self.value_embeds.view(5, self.vocab_size, -1)[:, input_seq]
         # Shifted .01 ... 234 structure on token value embeddings by @photomz
@@ -1310,8 +1327,8 @@ class GPT(nn.Module):
         x = torch.cat([x[:1], x[1:] + smear_gate_out * x[:-1]])
         x = x0 = norm(x[None])
 
-        # Initialize residual stream with pre-layer-0 bigram injection
-        x = x + x0_bigram * bigram_lambdas[0]
+        # Initialize residual stream with pre-layer-0 bigram and byte injections
+        x = x + x0_bigram * bigram_lambdas[0] + x_byte * self.byte_lambda[0]
 
         # Precompute x0/bigram injection (added to attention output each layer)
         # Layer 0: bigram already injected above, so only x0 component
@@ -1371,6 +1388,27 @@ class GPT(nn.Module):
         return loss_per_token
 # -----------------------------------------------------------------------------
 # Distributed data loader
+
+def _build_token_byte_table(vocab_size: int, window: int, pad_side: str = "left") -> torch.Tensor:
+    # UTF-8 bytes per GPT-2 token id, aligned according to `pad_side`.
+    # pad_side="left"  -> suffix-aligned (last byte sits at window-1); keep TAIL bytes if truncating
+    # pad_side="right" -> prefix-aligned (first byte sits at 0);       keep HEAD bytes if truncating
+    # Ids in [enc.n_vocab, vocab_size) are unused and stay zero.
+    assert pad_side in ("left", "right"), f"unknown pad_side={pad_side!r}"
+    import tiktoken
+    enc = tiktoken.get_encoding("gpt2")
+    table = torch.zeros(vocab_size, window, dtype=torch.uint8)
+    for tok in range(enc.n_vocab):
+        raw = enc.decode_single_token_bytes(tok)
+        if not raw:
+            continue
+        if pad_side == "left":
+            b = raw[-window:]
+            table[tok, window - len(b):] = torch.frombuffer(bytearray(b), dtype=torch.uint8)
+        else:
+            b = raw[:window]
+            table[tok, :len(b)] = torch.frombuffer(bytearray(b), dtype=torch.uint8)
+    return table
 
 def _load_data_shard(file: Path):
     header = torch.from_file(str(file), False, 256, dtype=torch.int32) # header is 256 int32
@@ -1574,6 +1612,10 @@ class Hyperparameters:
     run_evals: bool = False  # run additional evaluations after training is completed
     # bigram hash embedding
     bigram_vocab_size: int = 50304 * 5
+    # token-strided byte convolution (env-overridable for sweeps)
+    byte_window_size: int = int(os.environ.get("BYTE_WINDOW_SIZE", 8))
+    byte_embedding_dim: int = int(os.environ.get("BYTE_EMBEDDING_DIM", 32))
+    byte_pad_side: str = os.environ.get("BYTE_PAD_SIDE", "left")  # "left" = suffix-aligned, "right" = prefix-aligned
 
 args = Hyperparameters()
 
@@ -1701,6 +1743,9 @@ class TrainingManager():
             "ve_gate_bank":   {"optim": "adam",    "comms": "replicated", "adam_betas": [0.9,  0.99]},
             "lm_head":        {"optim": "adam",    "comms": "sharded",    "adam_betas": [0.5,  0.95], "wd_mul": 150.},
             "bigram_embed":   {"optim": "adam",    "comms": "sharded_sparse", "adam_betas": [0.75, 0.95], "lr_mul": 75.,  "wd_mul": 5.0},
+            "byte_embed":     {"optim": "adam",    "comms": "replicated",     "adam_betas": [0.75, 0.95], "lr_mul": 75.,  "wd_mul": 5.0},
+            "byte_proj":      {"optim": "adam",    "comms": "replicated",     "adam_betas": [0.9,  0.95], "lr_mul": 1.0,  "wd_mul": 0.0},
+            "byte_lambda":    {"optim": "adam",    "comms": "replicated",     "adam_betas": [0.9,  0.95], "lr_mul": 1.0,  "wd_mul": 0.0},
             "post_lambdas":   {"optim": "adam",    "comms": "replicated",     "adam_betas": [0.9,  0.95], "lr_mul": 1.0,  "wd_mul": 0.0},
             "x0_lambdas":     {"optim": "adam",    "comms": "replicated",     "adam_betas": [0.9,  0.95], "lr_mul": 1.0,  "wd_mul": 0.0},
             "bigram_lambdas": {"optim": "adam",    "comms": "replicated",     "adam_betas": [0.9,  0.95], "lr_mul": 1.0,  "wd_mul": 0.0},
@@ -1712,8 +1757,8 @@ class TrainingManager():
         # - Process smaller/faster params first while large reduces complete
         # - lm_head must complete before embed sync (when tied)
         self.work_order = [
-            "scalars", "smear_gate", "skip_gate", "attn_gate_bank", "ve_gate_bank", "post_lambdas", "x0_lambdas", "bigram_lambdas", "resid_lambdas",  # Small, fast
-            "value_embeds", "bigram_embed",  # Medium
+            "scalars", "smear_gate", "skip_gate", "attn_gate_bank", "ve_gate_bank", "post_lambdas", "x0_lambdas", "bigram_lambdas", "byte_lambda", "resid_lambdas",  # Small, fast
+            "value_embeds", "bigram_embed", "byte_embed", "byte_proj",  # Medium
             "lm_head", "embed",   # lm_head must complete before embed sync (when tied)
             "qk_bank", "vo_bank", "mlp_bank",  # Large, polar express - process last to maximize overlap
         ]
@@ -1878,6 +1923,7 @@ print0("="*100)
 print0(f"Running Python {sys.version}")
 print0(f"Running PyTorch {torch.version.__version__} compiled for CUDA {torch.version.cuda}")
 print0(f"Running Triton version {triton.__version__}")
+print0(f"byte_conv_cfg: window_size={args.byte_window_size} embedding_dim={args.byte_embedding_dim} pad_side={args.byte_pad_side}")
 
 def nvidia_smi():
     import subprocess  # avoid top level import
