@@ -22,7 +22,7 @@ To this, I would like to add the following:
 x_byte = self.byte_convolution(byte_seq)
 ```
 
-We construct `byte_seq` as a tensor of size `(input_length, byte_window_size)`, where `byte_window_size = 8` is a new hyperparameter that we should sweep. In the abstract, byte_seq should be constructed using a by first tokenizing the input, and then ordering the utf-8 bytes associated with each token.
+We construct `byte_seq` as a tensor of size `(input_length, byte_window_size)`, where `byte_window_size = 8` is a new hyperparameter that we will sweep after implementing. In the abstract, byte_seq should be constructed using a by first tokenizing the input, and then ordering the utf-8 bytes associated with each token.
 
 For example:
 
@@ -41,9 +41,9 @@ For example:
 | e | t | e | n | n | r | o |
 | n | r | d | v | s | e | l |
 
-Whether we pad left or right is also something to ablate
+Whether we pad left or right is also something to ablate.
 
-- This would then have: An individual byte-level embedding layer applied to achieve a tensor which has a logical shape of `(input_length, byte_window_size, byte_embedding_dim)`, followed by a convolution/linear layer which will project this down to `(input_length, model_dim)`, the `self.byte_convolution` output. the output of  feel free to change the true tensor sizes to make it fast. 
+- This would then have: An individual byte-level embedding layer applied to achieve a tensor which has a logical shape of `(input_length, byte_window_size, byte_embedding_dim)`, followed by a convolution/linear layer which will project this down to `(input_length, model_dim)`, the `self.byte_convolution` output. Feel free to change the true tensor sizes to make it fast. `byte_embedding_dim = 32` is a new hyperparameter that we will sweep after implemening too. 
 
 Implementation notes:
 - The rules state that "New records must not modify the train or validation pipelines". I think this means that we will need to cache the token -> bytes mapping in a lookup table and store it elsewhere (unless this is already in ).
