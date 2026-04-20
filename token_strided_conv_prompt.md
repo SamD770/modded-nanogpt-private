@@ -48,3 +48,4 @@ Whether we pad left or right is also something to ablate.
 Implementation notes:
 - The rules state that "New records must not modify the train or validation pipelines". I think this means that we will need to cache the token -> bytes mapping in a lookup table and store it elsewhere (unless this is already in ).
 - The goal of this is to be _fast_ : you should flag if you think that there will be a cpu-bound process here. 
+- Nonetheless, for now I am primarily interested in if the val loss will be lower with the preprogrammed number of steps.
