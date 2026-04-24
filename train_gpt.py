@@ -1244,7 +1244,7 @@ class GPT(nn.Module):
             _build_token_byte_table(self.vocab_size, args.byte_window_size, args.byte_pad_side).to(torch.int64),
             persistent=False,
         )
-        self.byte_lambda = nn.Parameter(0.05 * torch.ones(1))
+        self.byte_lambdas = nn.Parameter(0.05 * torch.ones(num_layers))
 
         self.post_lambdas = nn.Parameter(torch.ones(num_layers, 2))
 
@@ -1294,6 +1294,7 @@ class GPT(nn.Module):
         post_lambdas_mlp  = self.post_lambdas[:, 1].bfloat16().unbind(0)
         x0_lambdas = self.x0_lambdas.bfloat16().unbind(0)
         bigram_lambdas = self.bigram_lambdas.bfloat16().unbind(0)
+        byte_lambdas = self.byte_lambdas.bfloat16().unbind(0)
         ag = self.attn_gate_bank.unbind(0)
         veg = self.ve_gate_bank.unbind(0)
         attn_gates = [*ag[:6], None, *ag[6:]]
@@ -1328,11 +1329,11 @@ class GPT(nn.Module):
         x = x0 = norm(x[None])
 
         # Initialize residual stream with pre-layer-0 bigram and byte injections
-        x = x + x0_bigram * bigram_lambdas[0] + x_byte * self.byte_lambda[0]
+        x = x + x0_bigram * bigram_lambdas[0] + x_byte * byte_lambdas[0]
 
-        # Precompute x0/bigram injection (added to attention output each layer)
-        # Layer 0: bigram already injected above, so only x0 component
-        x0_inject = (x0 * x0_lambdas[0],) + tuple(x0 * x0_lambdas[i] + x0_bigram * bigram_lambdas[i] for i in range(1, self.num_layers))
+        # Precompute x0/bigram/byte injection (added to attention output each layer)
+        # Layer 0: bigram and byte already injected above, so only x0 component
+        x0_inject = (x0 * x0_lambdas[0],) + tuple(x0 * x0_lambdas[i] + x0_bigram * bigram_lambdas[i] + x_byte * byte_lambdas[i] for i in range(1, self.num_layers))
         skip_gate_out = torch.sigmoid(skip_lambda) * 2 * torch.sigmoid(self.skip_gate(x0[..., :self.skip_gate.weight.size(-1)]))
         
         # ---- Transformer layers ----
@@ -1608,7 +1609,7 @@ class Hyperparameters:
     # evaluation and logging
     run_id: str = f"{uuid.uuid4()}"
     val_loss_every: int = 250  # every how many steps to evaluate val loss? 0 for only at the end
-    save_checkpoint: bool = False
+    save_checkpoint: bool = bool(int(os.environ.get("SAVE_CHECKPOINT", 0)))
     run_evals: bool = False  # run additional evaluations after training is completed
     # bigram hash embedding
     bigram_vocab_size: int = 50304 * 5
@@ -1745,7 +1746,7 @@ class TrainingManager():
             "bigram_embed":   {"optim": "adam",    "comms": "sharded_sparse", "adam_betas": [0.75, 0.95], "lr_mul": 75.,  "wd_mul": 5.0},
             "byte_embed":     {"optim": "adam",    "comms": "replicated",     "adam_betas": [0.75, 0.95], "lr_mul": 75.,  "wd_mul": 5.0},
             "byte_proj":      {"optim": "adam",    "comms": "replicated",     "adam_betas": [0.9,  0.95], "lr_mul": 1.0,  "wd_mul": 0.0},
-            "byte_lambda":    {"optim": "adam",    "comms": "replicated",     "adam_betas": [0.9,  0.95], "lr_mul": 1.0,  "wd_mul": 0.0},
+            "byte_lambdas":   {"optim": "adam",    "comms": "replicated",     "adam_betas": [0.9,  0.95], "lr_mul": 1.0,  "wd_mul": 0.0},
             "post_lambdas":   {"optim": "adam",    "comms": "replicated",     "adam_betas": [0.9,  0.95], "lr_mul": 1.0,  "wd_mul": 0.0},
             "x0_lambdas":     {"optim": "adam",    "comms": "replicated",     "adam_betas": [0.9,  0.95], "lr_mul": 1.0,  "wd_mul": 0.0},
             "bigram_lambdas": {"optim": "adam",    "comms": "replicated",     "adam_betas": [0.9,  0.95], "lr_mul": 1.0,  "wd_mul": 0.0},
@@ -1757,7 +1758,7 @@ class TrainingManager():
         # - Process smaller/faster params first while large reduces complete
         # - lm_head must complete before embed sync (when tied)
         self.work_order = [
-            "scalars", "smear_gate", "skip_gate", "attn_gate_bank", "ve_gate_bank", "post_lambdas", "x0_lambdas", "bigram_lambdas", "byte_lambda", "resid_lambdas",  # Small, fast
+            "scalars", "smear_gate", "skip_gate", "attn_gate_bank", "ve_gate_bank", "post_lambdas", "x0_lambdas", "bigram_lambdas", "byte_lambdas", "resid_lambdas",  # Small, fast
             "value_embeds", "bigram_embed", "byte_embed", "byte_proj",  # Medium
             "lm_head", "embed",   # lm_head must complete before embed sync (when tied)
             "qk_bank", "vo_bank", "mlp_bank",  # Large, polar express - process last to maximize overlap
@@ -2029,7 +2030,7 @@ for step in range(train_steps + 1):
         print0(f"step:{step}/{train_steps} val_loss:{val_loss:.4f} train_time:{training_time_ms:.0f}ms step_avg:{training_time_ms/max(step, 1):.2f}ms", console=True)
         with torch.no_grad():
             _m = getattr(model, "_orig_mod", model)
-            _bl = _m.byte_lambda.detach().float().cpu().tolist()
+            _bl = _m.byte_lambdas.detach().float().cpu().tolist()
             _bg = _m.bigram_lambdas.detach().float().cpu().tolist()
         print0(f"lambdas step:{step} byte_lambda:{_bl} bigram_lambdas:{_bg}", console=False)
         model.train()
