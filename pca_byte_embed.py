@@ -52,7 +52,7 @@ ax.set_ylabel(f"PC2 ({evr[1]:.1%})")
 ax.set_title(f"byte_embed PCA (lower/upper/digit) — {CKPT.parent.name}")
 ax.legend()
 ax.grid(alpha=0.3)
-out = "byte_embed_pca.png"
+out = f"byte_embed_pca_{CKPT.parent.name}.png"
 plt.tight_layout()
 plt.savefig(out, dpi=140)
 print(f"wrote {out}")

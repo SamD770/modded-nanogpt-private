@@ -1,0 +1,9 @@
+[Gloo] Rank 0 is connected to 0 peer ranks. Expected number of connected peer ranks is : 0
+Fetching 4 files:   0%|          | 0/4 [00:00<?, ?it/s]Fetching 4 files: 100%|██████████| 4/4 [00:00<00:00, 28055.55it/s]
+logs/4d98dcbc-f2b4-40fa-9cca-18d31b8e480e.txt
+Compiling model and warming up kernels (~7 minutes on first execution)
+Sampling steps [0, 1, 478, 479, 480, 481, 958, 959, 960, 961, 1438, 1439, 1440, 1441] for warmup
+Resetting Model
+Loading checkpoint for eval: logs/54378d35-1b01-43ae-91da-df608aa30390/state_step001480.pt
+step:1480/1480 val_loss:3.2819 train_time:8ms step_avg:0.01ms
+peak memory allocated: 37332 MiB reserved: 46090 MiB

@@ -1234,11 +1234,30 @@ class GPT(nn.Module):
         nn.init.zeros_(self.bigram_embed.weight)
 
         # Token-strided byte convolution: per-token UTF-8 bytes -> embed -> project to model_dim.
+        # byte_embed: zero init (so output is zero at start, matching baseline).
+        # byte_proj: structured rotation init - block at window position w is R^w @ M, where M
+        # is a standard projection init and R is block-diagonal (identity on first half of model_dim,
+        # paired 2D rotations by pi/12 on the second half). Both freely trainable post-init.
         self.byte_window_size = args.byte_window_size
         self.byte_embed = nn.Embedding(256, args.byte_embedding_dim)
-        nn.init.normal_(self.byte_embed.weight, mean=0.0, std=0.02)
+        nn.init.zeros_(self.byte_embed.weight)
         self.byte_proj = nn.Linear(args.byte_window_size * args.byte_embedding_dim, model_dim, bias=False)
-        nn.init.zeros_(self.byte_proj.weight)  # start training identical to baseline
+        with torch.no_grad():
+            M = torch.empty(model_dim, args.byte_embedding_dim)
+            nn.init.kaiming_uniform_(M, a=math.sqrt(5))  # default nn.Linear init for fan_in=byte_embedding_dim
+            angle = math.pi / 12
+            cos_a, sin_a = math.cos(angle), math.sin(angle)
+            R = torch.eye(model_dim)
+            half = model_dim // 2
+            assert (model_dim - half) % 2 == 0, "second half of model_dim must be even for paired 2D rotations"
+            for i in range(half, model_dim, 2):
+                R[i,     i    ] =  cos_a; R[i,     i + 1] = -sin_a
+                R[i + 1, i    ] =  sin_a; R[i + 1, i + 1] =  cos_a
+            E = args.byte_embedding_dim
+            Rn = torch.eye(model_dim)
+            for w in range(args.byte_window_size):
+                self.byte_proj.weight[:, w * E : (w + 1) * E].copy_(Rn @ M)
+                Rn = R @ Rn
         self.register_buffer(
             "byte_table",
             _build_token_byte_table(self.vocab_size, args.byte_window_size, args.byte_pad_side).to(torch.int64),
@@ -1992,6 +2011,20 @@ training_manager.reset(initial_state["optimizer"])
 del val_loader, train_loader, initial_state
 model.train()
 
+# Ablation/eval-only hooks (opt-in via env vars; no effect by default)
+_CKPT_PATH = os.environ.get("CKPT_PATH", "")
+_ABLATE_BYTE = bool(int(os.environ.get("ABLATE_BYTE", "0")))
+_EVAL_ONLY = bool(int(os.environ.get("EVAL_ONLY", "0")))
+if _CKPT_PATH:
+    print0(f"Loading checkpoint for eval: {_CKPT_PATH}", console=True)
+    _ckpt = torch.load(_CKPT_PATH, map_location="cuda", weights_only=False)
+    _sd = {k.removeprefix("_orig_mod."): v for k, v in _ckpt["model"].items()}
+    getattr(model, "_orig_mod", model).load_state_dict(_sd)
+if _ABLATE_BYTE:
+    with torch.no_grad():
+        getattr(model, "_orig_mod", model).byte_lambdas.zero_()
+    print0("Ablation: zeroed byte_lambdas", console=True)
+
 ########################################
 #        Training and validation       #
 ########################################
@@ -2005,7 +2038,8 @@ torch.cuda.synchronize()
 t0 = time.perf_counter()
 # begin training
 train_steps = training_schedule.total_steps
-for step in range(train_steps + 1):
+_step_range = [train_steps] if _EVAL_ONLY else range(train_steps + 1)
+for step in _step_range:
     last_step = (step == train_steps)
     training_manager.advance_schedule(step)
     # --------------- VALIDATION SECTION -----------------
