@@ -1269,6 +1269,11 @@ class GPT(nn.Module):
                 self.byte_proj.weight[:, w * E : (w + 1) * E].copy_(Rn @ M)
                 Rn = R @ Rn
         self.byte_proj.weight.label = 'byte_proj'
+        self.register_buffer(
+            "byte_table",
+            _build_token_byte_table(self.vocab_size, args.byte_window_size, args.byte_pad_side).to(torch.int64),
+            persistent=False,
+        )
         self.byte_lambdas = nn.Parameter(0.05 * torch.ones(num_layers))
         self.byte_lambdas.label = 'byte_lambdas'
 
@@ -1342,7 +1347,7 @@ class GPT(nn.Module):
         assert self.attn.num_heads % self._mudd_C == 0
         self._mudd_gate_repeat = self.attn.num_heads // self._mudd_C
 
-    def forward(self, input_seq: Tensor, target_seq: Tensor, seqlens: Tensor, bigram_input_seq: Tensor, byte_input_seq: Tensor, schedule_cfg: ForwardScheduleConfig):
+    def forward(self, input_seq: Tensor, target_seq: Tensor, seqlens: Tensor, bigram_input_seq: Tensor, schedule_cfg: ForwardScheduleConfig):
         assert input_seq.ndim == 1
 
         # unpack schedule_cfg
@@ -1405,10 +1410,8 @@ class GPT(nn.Module):
         x02 = norm(self.embed2(input_seq)[None])
         x0_bigram = self.bigram_embed(bigram_input_seq)[None]
 
-        # Token-strided byte convolution injection: per-token UTF-8 bytes -> embed -> project.
-        # byte_input_seq is provided by the data loader (stream window of 8 bytes ending at each token,
-        # zero-padded at document boundaries).
-        x_byte = self.byte_proj(self.byte_embed(byte_input_seq.long()).flatten(1))[None]
+        # Token-strided byte convolution injection: per-token UTF-8 bytes -> embed -> project
+        x_byte = self.byte_proj(self.byte_embed(self.byte_table[input_seq]).flatten(1))[None]
 
         # ---- MUDD state ----
         h_backout_snap = None  # snapshot at backout_layer (layer 11)
@@ -1554,69 +1557,26 @@ class GPT(nn.Module):
 # -----------------------------------------------------------------------------
 # Distributed data loader
 
-def _build_token_byte_full_table(vocab_size: int, max_token_bytes: int = 32):
-    """Returns (table, counts):
-       - table: (vocab_size, max_token_bytes) uint8, left-aligned bytes per token
-       - counts: (vocab_size,) uint8, per-token byte count (capped at max_token_bytes).
-       Tokens in [enc.n_vocab, vocab_size) and tokens with byte count 0 stay zero.
-    """
+def _build_token_byte_table(vocab_size: int, window: int, pad_side: str = "left") -> torch.Tensor:
+    # UTF-8 bytes per GPT-2 token id, aligned according to `pad_side`.
+    # pad_side="left"  -> suffix-aligned (last byte sits at window-1); keep TAIL bytes if truncating
+    # pad_side="right" -> prefix-aligned (first byte sits at 0);       keep HEAD bytes if truncating
+    # Ids in [enc.n_vocab, vocab_size) are unused and stay zero.
+    assert pad_side in ("left", "right"), f"unknown pad_side={pad_side!r}"
     import tiktoken
     enc = tiktoken.get_encoding("gpt2")
-    table = torch.zeros(vocab_size, max_token_bytes, dtype=torch.uint8)
-    counts = torch.zeros(vocab_size, dtype=torch.uint8)
+    table = torch.zeros(vocab_size, window, dtype=torch.uint8)
     for tok in range(enc.n_vocab):
         raw = enc.decode_single_token_bytes(tok)
         if not raw:
             continue
-        b = raw[:max_token_bytes]
-        counts[tok] = len(b)
-        table[tok, :len(b)] = torch.frombuffer(bytearray(b), dtype=torch.uint8)
-    return table, counts
-
-
-# Module-level byte tables (used by the data loader to build per-token byte windows
-# from a stream that respects document boundaries). 50304 = next_multiple_of_n(50257, 128).
-_TOKEN_MAX_BYTES = 32
-_token_bytes_full_t, _token_byte_count_t = _build_token_byte_full_table(50304, _TOKEN_MAX_BYTES)
-TOKEN_BYTES_FULL_NP = _token_bytes_full_t.numpy()                      # (50304, 32) uint8
-TOKEN_BYTE_COUNT_NP = _token_byte_count_t.numpy().astype(np.int32)     # (50304,) int32
-del _token_bytes_full_t, _token_byte_count_t
-
-
-def get_byte_window_stream(input_seq_np: np.ndarray, cum_lengths_np: np.ndarray, window: int = 8) -> np.ndarray:
-    """For each token position t in input_seq, return the last `window` bytes of the document's
-    byte stream ending at the last byte of token t. Pads with zeros at document starts.
-
-    Args:
-      input_seq_np:    (T,) int32 token ids.
-      cum_lengths_np:  (M,) int32 — leading 0, doc-end token positions, then padded with T.
-      window:          number of bytes per token row.
-
-    Returns:
-      (T, window) uint8.
-    """
-    T = input_seq_np.shape[0]
-    counts = TOKEN_BYTE_COUNT_NP[input_seq_np].astype(np.int64)            # (T,) bytes per token
-    cum_bytes_global = np.cumsum(counts)                                   # (T,) exclusive end byte index
-    # Doc index for each token: largest k with cum_lengths_np[k] <= t
-    doc_idx = np.searchsorted(cum_lengths_np, np.arange(T), side="right") - 1
-    # Byte offset at start of each doc (cum_lengths_np[k] is the token start of doc k):
-    #   doc_start_byte[k] = cum_bytes_global[cum_lengths_np[k] - 1] if cum_lengths_np[k] > 0 else 0
-    doc_start_byte = np.zeros_like(cum_lengths_np, dtype=np.int64)
-    nz = cum_lengths_np > 0
-    if nz.any():
-        doc_start_byte[nz] = cum_bytes_global[cum_lengths_np[nz] - 1]
-    # Build the byte stream by flattening valid bytes per token in row-major order
-    bytes_per_tok = TOKEN_BYTES_FULL_NP[input_seq_np]                      # (T, max_len)
-    pos_arange = np.arange(bytes_per_tok.shape[1])
-    valid_per_tok = pos_arange[None, :] < counts[:, None]                  # (T, max_len)
-    byte_stream = bytes_per_tok[valid_per_tok]                             # (total_bytes,)
-    # Window indices: for token t, we want byte_stream[cum_bytes_global[t]-window : cum_bytes_global[t])
-    win_idx = cum_bytes_global[:, None] - np.arange(window, 0, -1)[None, :]  # (T, window)
-    valid_mask = win_idx >= doc_start_byte[doc_idx][:, None]               # (T, window)
-    win_idx_clamped = np.where(valid_mask, win_idx, 0)
-    byte_seq = byte_stream[win_idx_clamped]                                # (T, window)
-    return (byte_seq * valid_mask).astype(np.uint8)
+        if pad_side == "left":
+            b = raw[-window:]
+            table[tok, window - len(b):] = torch.frombuffer(bytearray(b), dtype=torch.uint8)
+        else:
+            b = raw[:window]
+            table[tok, :len(b)] = torch.frombuffer(bytearray(b), dtype=torch.uint8)
+    return table
 
 def _load_data_shard(file: Path):
     header = torch.from_file(str(file), False, 256, dtype=torch.int32) # header is 256 int32
@@ -1792,18 +1752,12 @@ def distributed_data_generator(filename_pattern: str, num_tokens: int, max_seq_l
         _targets = _targets.to(dtype=torch.int64)
         _cum_lengths = _cum_lengths.to(dtype=torch.int32)
         _bigram_inputs = get_bigram_hash(_inputs)
-        # Per-batch byte windows over the document byte stream (respects doc boundaries).
-        _byte_inputs_np = get_byte_window_stream(
-            _inputs.numpy(), _cum_lengths.numpy(), window=args.byte_window_size
-        )
-        _byte_inputs = torch.from_numpy(_byte_inputs_np)  # (T, window) uint8
 
         new_params = yield (
             _inputs.to(device="cuda", non_blocking=True),
             _targets.to(device="cuda", non_blocking=True),
             _cum_lengths.to(device="cuda", non_blocking=True),
             _bigram_inputs.to(device="cuda", non_blocking=True),
-            _byte_inputs.to(device="cuda", non_blocking=True),
             _bigram_inputs.numpy(),
         )
 
@@ -2092,11 +2046,10 @@ class Hyperparameters:
     ws_final: int = 23 # set final validation ws, used for YaRN extension and short window size
     ws_validate_post_yarn_ext: int = 27 # extend long windows out even further after applying YaRN
     bigram_vocab_size: int = 50304 * 5
-    # token-strided byte convolution (env-overridable for sweeps).
-    # Bytes come from a stream over the document (cross-token, doc-boundary-respecting),
-    # so byte_pad_side no longer applies.
+    # token-strided byte convolution (env-overridable for sweeps)
     byte_window_size: int = int(os.environ.get("BYTE_WINDOW_SIZE", 8))
     byte_embedding_dim: int = int(os.environ.get("BYTE_EMBEDDING_DIM", 32))
+    byte_pad_side: str = os.environ.get("BYTE_PAD_SIDE", "left")  # "left" = suffix-aligned, "right" = prefix-aligned
 
 args = Hyperparameters()
 
@@ -2109,7 +2062,6 @@ _CKPT_PATH = os.environ.get("CKPT_PATH", "")
 _EVAL_ONLY = bool(int(os.environ.get("EVAL_ONLY", "0")))
 _PROBE_NORMS = bool(int(os.environ.get("PROBE_NORMS", "0")))
 _PROBE_OUT = os.environ.get("PROBE_OUT", "logs/medium_runs/probe_layer1.pt")
-_ABLATE_BYTE = bool(int(os.environ.get("ABLATE_BYTE", "0")))
 
 # torchrun sets these env variables
 rank = int(os.environ["RANK"])
@@ -2145,7 +2097,7 @@ print0("="*100)
 print0(f"Running Python {sys.version}")
 print0(f"Running PyTorch {torch.version.__version__} compiled for CUDA {torch.version.cuda}")
 print0(f"Running Triton version {triton.__version__}")
-print0(f"byte_conv_cfg: window_size={args.byte_window_size} embedding_dim={args.byte_embedding_dim} mode=stream_with_doc_boundaries")
+print0(f"byte_conv_cfg: window_size={args.byte_window_size} embedding_dim={args.byte_embedding_dim} pad_side={args.byte_pad_side}")
 
 def nvidia_smi():
     import subprocess  # avoid top level import
@@ -2176,9 +2128,7 @@ model.dense_bs.data = model.dense_bs.data.bfloat16()
 for param in model.parameters():
     dist.broadcast(param.detach(), 0)
 
-if not (_EVAL_ONLY and _PROBE_NORMS):
-    # Skip compile only for the probe path (probe's .cpu()/dict capture breaks fullgraph).
-    # Plain EVAL_ONLY (e.g., for ABLATE_BYTE) still compiles for numerically-faithful loss.
+if not _EVAL_ONLY:
     model: nn.Module = torch.compile(model, dynamic=False, fullgraph=True)
 training_manager = TrainingManager(model)
 
@@ -2190,15 +2140,7 @@ if _EVAL_ONLY:
         _sd = {k.removeprefix("_orig_mod."): v for k, v in _ckpt["model"].items()}
         getattr(model, "_orig_mod", model).load_state_dict(_sd)
         del _ckpt, _sd
-    if _ABLATE_BYTE:
-        with torch.no_grad():
-            getattr(model, "_orig_mod", model).byte_lambdas.zero_()
-        print0("Ablation: zeroed byte_lambdas", console=True)
     train_steps_eval = args.num_iterations
-    # Replay every window-size transition so yarn.apply is applied incrementally,
-    # matching the state at end of training. (Yarn is only updated for ws_long<=13.)
-    for _t_step in training_manager.get_transition_steps():
-        training_manager.advance_schedule(_t_step)
     training_manager.advance_schedule(train_steps_eval)
     training_manager.apply_final_ws_ext()
     model.eval()
@@ -2208,8 +2150,8 @@ if _EVAL_ONLY:
     val_loss = 0
     with torch.no_grad():
         for _ in range(val_steps):
-            inputs, targets, cum_seqlens, bigram_inputs, byte_inputs, _ = next(val_loader)
-            val_loss += model(inputs, targets, cum_seqlens, bigram_inputs, byte_inputs, training_manager.get_forward_args())
+            inputs, targets, cum_seqlens, bigram_inputs, _ = next(val_loader)
+            val_loss += model(inputs, targets, cum_seqlens, bigram_inputs, training_manager.get_forward_args())
     val_loss /= val_steps
     dist.reduce(val_loss, 0, op=dist.ReduceOp.AVG)
     print0(f"EVAL_ONLY val_loss:{val_loss:.4f}  (probe_records={len(getattr(model, '_orig_mod', model)._probe_layer1)})", console=True)
@@ -2239,14 +2181,14 @@ for step in warmup_steps:
     training_manager.advance_schedule(step)
     model.eval()
     with torch.no_grad():
-        inputs, targets, cum_seqlens, bigram_inputs, byte_inputs, _ = next(val_loader)
-        model(inputs, targets, cum_seqlens, bigram_inputs, byte_inputs, training_manager.get_forward_args())
+        inputs, targets, cum_seqlens, bigram_inputs, _ = next(val_loader)
+        model(inputs, targets, cum_seqlens, bigram_inputs, training_manager.get_forward_args())
     model.train()
     for idx in range(grad_accum_steps):
         send_args = training_manager.train_loader_send_args
-        inputs, targets, cum_seqlens, bigram_inputs, byte_inputs, bigram_cpu = train_loader.send(send_args)
+        inputs, targets, cum_seqlens, bigram_inputs, bigram_cpu = train_loader.send(send_args)
         training_manager.sparse_index_update(step, bigram_cpu)
-        loss = model(inputs, targets, cum_seqlens, bigram_inputs, byte_inputs, training_manager.get_forward_args()) / grad_accum_steps
+        loss = model(inputs, targets, cum_seqlens, bigram_inputs, training_manager.get_forward_args()) / grad_accum_steps
         training_manager.sparse_index_share(step)
         loss.backward()
         del loss
@@ -2288,8 +2230,8 @@ for step in range(train_steps + 1):
         val_loss = 0
         with torch.no_grad():
             for _ in range(val_steps):
-                inputs, targets, cum_seqlens, bigram_inputs, byte_inputs, _ = next(val_loader)
-                val_loss += model(inputs, targets, cum_seqlens, bigram_inputs, byte_inputs, training_manager.get_forward_args())
+                inputs, targets, cum_seqlens, bigram_inputs, _ = next(val_loader)
+                val_loss += model(inputs, targets, cum_seqlens, bigram_inputs, training_manager.get_forward_args())
         val_loss /= val_steps
         del val_loader
         dist.reduce(val_loss, 0, op=dist.ReduceOp.AVG)
@@ -2315,9 +2257,9 @@ for step in range(train_steps + 1):
     # --------------- TRAINING SECTION -----------------
     for idx in range(grad_accum_steps):
         send_args = training_manager.train_loader_send_args
-        inputs, targets, cum_seqlens, bigram_inputs, byte_inputs, bigram_cpu = train_loader.send(send_args)
+        inputs, targets, cum_seqlens, bigram_inputs, bigram_cpu = train_loader.send(send_args)
         training_manager.sparse_index_update(step, bigram_cpu)
-        loss = model(inputs, targets, cum_seqlens, bigram_inputs, byte_inputs, training_manager.get_forward_args()) / grad_accum_steps
+        loss = model(inputs, targets, cum_seqlens, bigram_inputs, training_manager.get_forward_args()) / grad_accum_steps
         training_manager.sparse_index_share(step)
         loss.backward()
         del loss
@@ -2330,3 +2272,61 @@ for step in range(train_steps + 1):
 print0(f"peak memory allocated: {torch.cuda.max_memory_allocated() // 1024 // 1024} MiB "
        f"reserved: {torch.cuda.max_memory_reserved() // 1024 // 1024} MiB", console=True)
 dist.destroy_process_group()
+====================================================================================================
+Running Python 3.10.12 (main, Nov  4 2025, 08:48:33) [GCC 11.4.0]
+Running PyTorch 2.10.0+cu128 compiled for CUDA 12.8
+Running Triton version 3.6.0
+byte_conv_cfg: window_size=8 embedding_dim=32 pad_side=right
+Sun May  3 03:25:44 2026       
++-----------------------------------------------------------------------------------------+
+| NVIDIA-SMI 580.95.05              Driver Version: 580.95.05      CUDA Version: 13.0     |
++-----------------------------------------+------------------------+----------------------+
+| GPU  Name                 Persistence-M | Bus-Id          Disp.A | Volatile Uncorr. ECC |
+| Fan  Temp   Perf          Pwr:Usage/Cap |           Memory-Usage | GPU-Util  Compute M. |
+|                                         |                        |               MIG M. |
+|=========================================+========================+======================|
+|   0  NVIDIA H200                    On  |   00000000:09:00.0 Off |                    0 |
+| N/A   32C    P0            115W /  700W |    1515MiB / 143771MiB |      0%      Default |
+|                                         |                        |             Disabled |
++-----------------------------------------+------------------------+----------------------+
+|   1  NVIDIA H200                    On  |   00000000:33:00.0 Off |                    0 |
+| N/A   34C    P0            114W /  700W |    1515MiB / 143771MiB |      0%      Default |
+|                                         |                        |             Disabled |
++-----------------------------------------+------------------------+----------------------+
+|   2  NVIDIA H200                    On  |   00000000:3A:00.0 Off |                    0 |
+| N/A   31C    P0            113W /  700W |    1515MiB / 143771MiB |      0%      Default |
+|                                         |                        |             Disabled |
++-----------------------------------------+------------------------+----------------------+
+|   3  NVIDIA H200                    On  |   00000000:64:00.0 Off |                    0 |
+| N/A   34C    P0            115W /  700W |    1515MiB / 143771MiB |      0%      Default |
+|                                         |                        |             Disabled |
++-----------------------------------------+------------------------+----------------------+
+|   4  NVIDIA H200                    On  |   00000000:84:00.0 Off |                    0 |
+| N/A   31C    P0            112W /  700W |    1515MiB / 143771MiB |      0%      Default |
+|                                         |                        |             Disabled |
++-----------------------------------------+------------------------+----------------------+
+|   5  NVIDIA H200                    On  |   00000000:CC:00.0 Off |                    0 |
+| N/A   33C    P0            114W /  700W |    1515MiB / 143771MiB |      0%      Default |
+|                                         |                        |             Disabled |
++-----------------------------------------+------------------------+----------------------+
+|   6  NVIDIA H200                    On  |   00000000:D3:00.0 Off |                    0 |
+| N/A   32C    P0            118W /  700W |    1515MiB / 143771MiB |      0%      Default |
+|                                         |                        |             Disabled |
++-----------------------------------------+------------------------+----------------------+
+|   7  NVIDIA H200                    On  |   00000000:E1:00.0 Off |                    0 |
+| N/A   34C    P0            119W /  700W |    1515MiB / 143771MiB |      0%      Default |
+|                                         |                        |             Disabled |
++-----------------------------------------+------------------------+----------------------+
+
++-----------------------------------------------------------------------------------------+
+| Processes:                                                                              |
+|  GPU   GI   CI              PID   Type   Process name                        GPU Memory |
+|        ID   ID                                                               Usage      |
+|=========================================================================================|
+|  No running processes found                                                             |
++-----------------------------------------------------------------------------------------+
+
+====================================================================================================
+Loading checkpoint for eval: /root/modded-nanogpt-private/logs/medium_runs/token_strided_conv_w8_e32_right_ckpt_20260503_024858/state_step004150.pt
+EVAL_ONLY val_loss:3.3205  (probe_records=5)
+Saved 5 probe records to /root/modded-nanogpt-private/logs/medium_runs/probe_layer1_right.pt
