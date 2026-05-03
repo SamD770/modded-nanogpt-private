@@ -38,8 +38,11 @@ sd = {k.removeprefix("_orig_mod."): v for k, v in ckpt["model"].items()}
 
 W_full = sd["byte_proj.weight"].float()                       # (model_dim, W*E)
 model_dim, in_dim = W_full.shape
-n_w, E = 8, 32                                                # byte_window_size, byte_embedding_dim
-assert in_dim == n_w * E, f"unexpected in_dim {in_dim}, expected {n_w*E}"
+E = 32                                                        # byte_embedding_dim (held fixed)
+n_w = in_dim // E                                             # byte_window_size (auto-detected)
+assert in_dim == n_w * E, f"unexpected in_dim {in_dim}, not a multiple of E={E}"
+print(f"detected n_w={n_w}, E={E} (byte_proj.weight shape={tuple(W_full.shape)})")
+OUT = Path(f"byte_proj_blocksim_w{n_w}.png")
 
 # Reshape into (n_w, model_dim, E) — block w occupies columns [w*E : (w+1)*E]
 W_trained = W_full.reshape(model_dim, n_w, E).permute(1, 0, 2).contiguous()
@@ -84,24 +87,28 @@ for i in range(n_w):
         S_expected[i, j] = 0.5 * (1 + math.cos(math.pi * abs(i - j) / 12))
 
 
+_annotate = n_w <= 12  # too cramped for larger windows
+
 def heatmap(ax, S, title):
-    im = ax.imshow(S.numpy(), vmin=0.3, vmax=1.0, cmap="viridis")
+    im = ax.imshow(S.numpy(), vmin=0.0, vmax=1.0, cmap="viridis")
     ax.set_title(title, fontsize=10)
     ax.set_xlabel("window pos w'")
     ax.set_ylabel("window pos w")
     ax.set_xticks(range(n_w))
     ax.set_yticks(range(n_w))
-    for i in range(n_w):
-        for j in range(n_w):
-            ax.text(j, i, f"{S[i,j]:.2f}", ha="center", va="center", fontsize=7,
-                    color="white" if S[i,j] < 0.65 else "black")
+    if _annotate:
+        for i in range(n_w):
+            for j in range(n_w):
+                ax.text(j, i, f"{S[i,j]:.2f}", ha="center", va="center", fontsize=7,
+                        color="white" if S[i,j] < 0.5 else "black")
     return im
 
 
-fig, axes = plt.subplots(1, 3, figsize=(15.5, 4.6))
+_w = max(15.5, 1.5 * n_w + 4)
+fig, axes = plt.subplots(1, 3, figsize=(_w, _w / 3.4))
 heatmap(axes[0], S_expected, "Analytical init expectation\n0.5*(1 + cos(pi*|w-w'|/12))")
 heatmap(axes[1], S_init,     f"Actual init (random M, seed=0)\n{model_dim}x{E} per block")
-im = heatmap(axes[2], S_trained,  "Trained (right-pad, end of training)")
+im = heatmap(axes[2], S_trained,  f"Trained ({CKPT.parent.name})")
 fig.colorbar(im, ax=axes, fraction=0.025, pad=0.02, label="cosine similarity")
 
 fig.suptitle("byte_proj block-pair cosine similarity (flattened)", fontsize=12)
