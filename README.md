@@ -1,6 +1,6 @@
 # Adding token-strided convolutions to NanoGPT
 
-This repo is the result of some attempts to add byte-level information to token embeddings via  "token strided convolutions" in the NanoGPT repo. The idea (put simply) is that many of the drawbacks mentioned in the [oft-cited Andrej Karpathy thread](https://x.com/karpathy/status/1759996551378940395) are actually a result of the model not receiving byte-level information, rather than bpe-based chunking.
+This repo is the result of some attempts to add byte-level information to token embeddings via  "token strided convolutions" in the NanoGPT repo. The idea (put simply) is that many of the drawbacks mentioned in the [oft-cited Andrej Karpathy thread on tokenization](https://x.com/karpathy/status/1759996551378940395) are actually a result of the model not receiving byte-level information, rather than bpe-based chunking.
 
 - Take the sequence "token strided convolutions are cool".
 - This gets tokenized into "token" " str" "ided" " conv" "olutions" " are" " cool".
