@@ -1,9 +1,29 @@
 # Adding token-strided convolutions to NanoGPT
 
-This repo is the result of some attempts to add byte-level information to token embeddings via  "token strided convolutions" in the NanoGPT repo. 
+This repo is the result of some attempts to add byte-level information to token embeddings via  "token strided convolutions" in the NanoGPT repo. The idea (put simply) is that many of the drawbacks mentioned in the [oft-cited Andrej Karpathy thread](https://x.com/karpathy/status/1759996551378940395) are actually a result of the model not receiving byte-level information, rather than bpe-based chunking.
 
-TLDR; no measurable change (positive or negative) to training efficiency. Model learns to upweight token-strided convolutions when added to every layer with a learnable coefficient (as with bigram embeddings).
+- Take the sequence "token strided convolutions are cool".
+- This gets tokenized into "token" " str" "ided" " conv" "olutions" " are" " cool".
+- We could format this in the following tensor:
 
+|   |   |   |   |   |   |   |
+|---|---|---|---|---|---|---|
+|   |   |   |   | o |   |   |
+|   |   |   |   | l |   |   |
+|   |   |   |   | u |   |   |
+| t |   |   | _ | t |   | _ |
+| o | _ | i | c | i | _ | c |
+| k | s | d | o | o | a | o |
+| e | t | e | n | n | r | o |
+| n | r | d | v | s | e | l |
+
+- And then apply a byte-level embedding + linear projection to the above, potentially with some initialization tricks.
+
+TLDR; 
+- no measurable change (positive or negative) to training efficiency.
+- Model learns to upweight token-strided convolutions when added to every layer with a learnable coefficient (as with bigram embeddings).
+- There is some semantic structure in the byte-level embeddings after training.
+ 
 ---
 # Modded-NanoGPT
 
