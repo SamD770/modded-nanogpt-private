@@ -1,3 +1,10 @@
+# Adding token-strided convolutions to NanoGPT
+
+This repo is the result of some attempts to add byte-level information to token embeddings via  "token strided convolutions" in the NanoGPT repo. 
+
+TLDR; no measurable change (positive or negative) to training efficiency. Model learns to upweight token-strided convolutions when added to every layer with a learnable coefficient (as with bigram embeddings).
+
+---
 # Modded-NanoGPT
 
 This repository hosts the *NanoGPT speedrun*, in which we (collaboratively|competitively) search for the fastest algorithm to use 8 NVIDIA H100 GPUs to train a language model that attains 3.28 cross-entropy loss on the [FineWeb](https://huggingface.co/datasets/HuggingFaceFW/fineweb) validation set.
